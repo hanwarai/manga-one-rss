@@ -1,0 +1,35 @@
+[project]
+name = "manga-one-rss"
+version = "0.1.0"
+description = "Atom RSS feed generator for マンガワン (manga-one.com) free chapters"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "feedgenerator>=2.2.1",
+    "jinja2>=3.1.6",
+    "requests>=2.33.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "requests-mock>=1.12.1",
+    "mypy>=1.11.0",
+    "types-requests>=2.33.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["main.py"]
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["feedgenerator"]
+ignore_missing_imports = true
