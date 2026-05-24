@@ -15,14 +15,14 @@ dev = [
     "pytest>=8.0.0",
     "requests-mock>=1.12.1",
     "mypy>=2.1.0",
-    "types-requests>=2.33.0.20260513",
+    "types-requests>=2.33.0.20260518",
 ]
 
 [dependency-groups]
 # uv 本体のバージョンピン。Dependabot (uv エコシステム) がこの行を bump し、
 # CI (.github/workflows/gh-pages.yaml) が setup-uv に渡す version をここから読む。
 # 既定グループではないため `uv sync` で venv にはインストールされない。
-ci = ["uv==0.11.15"]
+ci = ["uv==0.11.16"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
