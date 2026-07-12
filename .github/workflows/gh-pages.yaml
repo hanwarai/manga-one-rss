@@ -17,7 +17,7 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # uv 本体のバージョンは pyproject.toml の [dependency-groups] ci にピンしてあり、
       # Dependabot (uv エコシステム) がそれを bump する。ここでその値を読み取り setup-uv に渡す。
@@ -32,7 +32,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@v8.3.2
         with:
           version: ${{ steps.uv-version.outputs.version }}
 
