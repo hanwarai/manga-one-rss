@@ -44,7 +44,7 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 
 ## CI/CD
 
-ワークフローは 2 本。セットアップ手順（uv version 解決 → setup-uv → setup-python → `uv sync --frozen --all-extras`）は意図的に同内容で重複させている。両方 `.github/workflows/` 配下なので Dependabot (github-actions) が同一 PR で両者を bump する。
+ワークフローは 3 本。うち `gh-pages.yaml` と `ci.yaml` のセットアップ手順（uv version 解決 → setup-uv → setup-python → `uv sync --frozen --all-extras`）は意図的に同内容で重複させている。両方 `.github/workflows/` 配下なので Dependabot (github-actions) が同一 PR で両者を bump する。
 
 **`.github/workflows/gh-pages.yaml`** — ビルドとデプロイ:
 - トリガー: main へ push、12 時間ごとの schedule、`workflow_dispatch`
@@ -58,6 +58,13 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 - main は branch protection で `check` を required status check にしてある。赤いと `gh pr merge` は拒否される
 - `enforce_admins: false` なので admin は `gh pr merge --admin` で上書きでき、main への直接 push も従来どおり可能（`check` は push では走らないため、これを塞ぐと直接 push が恒久的に不可能になる）
 - **`ci.yaml` の job 名 `check` は required status check の context 名そのもの。**リネームすると protection が存在しない context を待ち続け、PR が永久にマージ不能になる。変える場合は branch protection 側も同時に更新する
+
+**`.github/workflows/dependabot-auto-merge.yaml`** — Dependabot PR の自動マージ:
+- トリガー: `pull_request_target`（`pull_request` だと Dependabot 起因のトークンが read-only 固定で、`permissions:` でも昇格できないため）
+- `update-type` が `version-update:semver-major` 以外なら `gh pr merge --auto --squash`。`check` が green になり次第マージされる
+- **major は自動マージしない。**グループ PR の `update-type` は「その PR に含まれる最大の semver 変更」を指すので、`patterns: ["*"]` の全部入りグループでも major は弾ける
+- **このワークフローに checkout / ビルド / テストのステップを足してはいけない。**`pull_request_target` は write 権限つきトークンで走るため、PR 側のコードを実行すると任意コードに write token を渡すことになる。検証は read-only で走る `ci.yaml` の責務
+- auto-merge は `GITHUB_TOKEN` が有効化するため、**マージ後の main への push では `gh-pages.yaml` が起動しない**（GITHUB_TOKEN 起因の push はワークフローを再帰起動しない仕様）。依存更新はフィード内容を変えないうえ 12 時間ごとの schedule が再デプロイするので実害はない。もし依存更新が `main.py` を壊していれば次の scheduled run が失敗し `notify-failure` が Issue を立てる
 
 ## Notes
 
