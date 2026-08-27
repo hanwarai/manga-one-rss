@@ -1,0 +1,45 @@
+name: dependabot auto-merge
+
+# SECURITY: pull_request_target は write 権限つきの GITHUB_TOKEN で base ブランチの
+# 定義を実行する。したがってこのワークフローでは PR のコードを絶対に checkout / 実行しない。
+# ビルドやテストのステップをここに足すと PR 側の任意コードに write token を渡すことになる。
+# 検証は ci.yaml (pull_request, read-only トークン) の責務であり、ここは API 呼び出しのみに留める。
+on: pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'hanwarai/manga-one-rss'
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3.1.0
+
+      # update-type はグループ PR の場合「その PR に含まれる最大の semver 変更」を指す。
+      # major を含むグループは自動マージせず手動レビューに残す。
+      - name: Enable auto-merge for non-major updates
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # check が既に green だと --auto は "clean status" で失敗する。その場合は素の
+          # merge にフォールバックする。--admin を付けないので branch protection は
+          # 依然として効き、赤い PR がマージされることはない。
+          if gh pr merge --auto --squash "$PR_URL"; then
+            echo "auto-merge を有効化した"
+          else
+            echo "::notice::auto-merge の有効化に失敗。check が既に green とみなして直接マージを試みる"
+            gh pr merge --squash "$PR_URL"
+          fi
+
+      - name: Report skipped major update
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        env:
+          NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: echo "::notice::major update ($NAMES) のため自動マージせず手動レビューに残す"
