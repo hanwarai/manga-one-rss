@@ -44,10 +44,18 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 
 ## CI/CD
 
-GitHub Actions（`.github/workflows/gh-pages.yaml`）:
+ワークフローは 2 本。セットアップ手順（uv version 解決 → setup-uv → setup-python → `uv sync --frozen --all-extras`）は意図的に同内容で重複させている。両方 `.github/workflows/` 配下なので Dependabot (github-actions) が同一 PR で両者を bump する。
+
+**`.github/workflows/gh-pages.yaml`** — ビルドとデプロイ:
 - トリガー: main へ push、12 時間ごとの schedule、`workflow_dispatch`
 - 処理: `uv sync` → `uv run mypy main.py` → `uv run pytest` → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
 - scheduled run が失敗した場合、`notify-failure` ジョブが `ci-failure` ラベルで Issue を起票（既存 open Issue があればコメント追記）
+
+**`.github/workflows/ci.yaml`** — PR 検証（デプロイなし）:
+- トリガー: main を base とする `pull_request`
+- 処理: `uv sync` → `uv run mypy main.py` → `uv run pytest`
+- `uv run main.py` は含めない。live API を叩くため PR ごとの実行は不安定で、push/schedule 実行でカバー済み
+- main に branch protection は未設定のため、このチェックは**必須ではなく参考表示**。落ちていてもマージは可能
 
 ## Notes
 
