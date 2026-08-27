@@ -55,7 +55,9 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 - トリガー: main を base とする `pull_request`
 - 処理: `uv sync` → `uv run mypy main.py` → `uv run pytest`
 - `uv run main.py` は含めない。live API を叩くため PR ごとの実行は不安定で、push/schedule 実行でカバー済み
-- main に branch protection は未設定のため、このチェックは**必須ではなく参考表示**。落ちていてもマージは可能
+- main は branch protection で `check` を required status check にしてある。赤いと `gh pr merge` は拒否される
+- `enforce_admins: false` なので admin は `gh pr merge --admin` で上書きでき、main への直接 push も従来どおり可能（`check` は push では走らないため、これを塞ぐと直接 push が恒久的に不可能になる）
+- **`ci.yaml` の job 名 `check` は required status check の context 名そのもの。**リネームすると protection が存在しない context を待ち続け、PR が永久にマージ不能になる。変える場合は branch protection 側も同時に更新する
 
 ## Notes
 
