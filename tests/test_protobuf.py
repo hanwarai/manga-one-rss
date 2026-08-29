@@ -1,16 +1,14 @@
 """protobuf wire-format デコーダの単体テスト。"""
 
-import pytest
-
 import main
 
 
 def _enc_varint(v: int) -> bytes:
     out = bytearray()
-    while v > 0x7f:
-        out.append((v & 0x7f) | 0x80)
+    while v > 0x7F:
+        out.append((v & 0x7F) | 0x80)
         v >>= 7
-    out.append(v & 0x7f)
+    out.append(v & 0x7F)
     return bytes(out)
 
 
@@ -38,7 +36,7 @@ def test_decodes_string_field() -> None:
 
 
 def test_empty_length_delimited_decodes_as_empty_string() -> None:
-    """field 16 が空 → 空文字列として現れる（無料章を表す印）。"""
+    """field 16 が空 → 空文字列として現れる(無料章を表す印)。"""
     buf = _enc_varint((16 << 3) | 2) + _enc_varint(0)
     assert main.proto_decode(buf) == [(16, "str", "")]
 
@@ -47,6 +45,7 @@ def test_decodes_nested_message() -> None:
     inner = _enc_varint_field(1, 1) + _enc_varint_field(2, 1)
     buf = _enc_message(16, inner)
     decoded = main.proto_decode(buf)
+    assert decoded is not None
     assert len(decoded) == 1
     field, wire, value = decoded[0]
     assert field == 16

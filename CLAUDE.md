@@ -15,8 +15,12 @@ uv sync --all-extras
 # フィード生成
 uv run main.py
 
-# テスト実行（requests-mock で I/O モック）
+# テスト実行（requests-mock で I/O モック、カバレッジ 80% 未満で失敗）
 uv run pytest
+
+# lint / format（CI ゲート）
+uv run ruff check .
+uv run ruff format .
 
 # 型検査（CI ゲート）
 uv run mypy
@@ -53,7 +57,7 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 
 **`.github/workflows/ci.yaml`** — PR 検証（デプロイなし）:
 - トリガー: main を base とする `pull_request`
-- 処理: `uv sync` → `uv run mypy` → `uv run pytest`
+- 処理: `uv sync` → `uv run ruff check .` → `uv run ruff format --check .` → `uv run mypy` → `uv run pytest`
 - `uv run main.py` は含めない。live API を叩くため PR ごとの実行は不安定で、push/schedule 実行でカバー済み
 - `--frozen` ではなく `--locked` を使う。`--frozen` は `uv.lock` をそのまま使うだけで `pyproject.toml` との整合性を検証しないため、Dependabot PR の lock ずれが auto-merge を素通りする
 - main は branch protection で `check` を required status check にしてある。赤いと `gh pr merge` は拒否される
@@ -85,3 +89,5 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 - 章エントリには `第N話` 以外に「コミックPR」「人物紹介」「アニメ情報」など販促章も混ざる。これらも掲載期間内は無料なので RSS に含める
 - WAF/Bot 対策は現状なし。User-Agent を付ければ素の `requests.post()` で取得可能
 - `__NEXT_DATA__` のような単一 JSON 埋め込みは存在しない。Next.js App Router の `__next_f.push` ストリームのみで、章メタ情報は **API 経由でのみ取得可能**
+- ruff の `RUF002`/`RUF003` は全角括弧（`（）`）や全角スラッシュを混同文字として弾く。コメントと docstring では ASCII の `()` `/` を使う（他の RSS リポジトリも同じ慣例）。文字列リテラルを見る `RUF001` は現状 0 件
+- `proto_decode` は `C901`/`PLR0911`/`PLR0912` を踏むため、wire 種別ごとの読み取りを `_read_fixed` / `_decode_length_delimited` / `_decode_fields` に分割し、失敗は `_DecodeError` に集約して `proto_decode` の 1 箇所だけで `None` に変換している。**`_decode_length_delimited` の再帰先は `_decode_fields` ではなく `proto_decode`。**例外を伝播させると入れ子の解釈失敗時に str/bytes へフォールバックできなくなる

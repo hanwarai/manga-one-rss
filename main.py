@@ -1,4 +1,4 @@
-"""マンガワン（manga-one.com）の無料章を取得する Atom RSS ジェネレータ。"""
+"""マンガワン(manga-one.com)の無料章を取得する Atom RSS ジェネレータ。"""
 
 from __future__ import annotations
 
@@ -38,27 +38,28 @@ USER_AGENT = (
 JST = timezone(timedelta(hours=9))
 DATE_RE = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})$")
 ID_RE = re.compile(r"^\d+$")
+FEED_CSV_COLUMNS = 2  # feed.csv は title_id,chapter_id の 2 列
 
 FEEDS_DIR = Path("feeds")
 FEED_LIST_PATH = Path("feed.csv")
 TEMPLATE_DIR = Path("templates")
 
 # viewer_v2 protobuf 内の field 番号
-WORK_INFO_FIELD = 5            # トップ: work メタ情報
-WORK_INNER_FIELD = 1           #   work_info.1: 作品本体
-WORK_TITLE_FIELD = 2           #     work.2: タイトル
-WORK_DESC_FIELD = 4            #     work.4: あらすじ
-WORK_AUTHOR_FIELD = 5          #     work.5: 著者
-WORK_THUMB_FIELD = 6           #     work.6: サムネイル
+WORK_INFO_FIELD = 5  # トップ: work メタ情報
+WORK_INNER_FIELD = 1  #   work_info.1: 作品本体
+WORK_TITLE_FIELD = 2  #     work.2: タイトル
+WORK_DESC_FIELD = 4  #     work.4: あらすじ
+WORK_AUTHOR_FIELD = 5  #     work.5: 著者
+WORK_THUMB_FIELD = 6  #     work.6: サムネイル
 
-CHAPTER_LIST_FIELD = 11        # トップ: 全章リスト
-CHAPTER_ENTRY_FIELD = 1        #   chapter_list.1: 各章 (repeated)
+CHAPTER_LIST_FIELD = 11  # トップ: 全章リスト
+CHAPTER_ENTRY_FIELD = 1  #   chapter_list.1: 各章 (repeated)
 
 CHAPTER_ID_FIELD = 1
 CHAPTER_LABEL_FIELD = 2
 CHAPTER_SUBTITLE_FIELD = 3
 CHAPTER_DATE_FIELD = 5
-CHAPTER_LOCK_FIELD = 16        # サブメッセージなら有料、空文字列／欠落なら無料
+CHAPTER_LOCK_FIELD = 16  # サブメッセージなら有料、空文字列/欠落なら無料
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +67,14 @@ CHAPTER_LOCK_FIELD = 16        # サブメッセージなら有料、空文字�
 # ---------------------------------------------------------------------------
 
 ProtoNode = list[tuple[int, str, Any]]
+
+# wire 種別 (protobuf 仕様)。3=SGROUP / 4=EGROUP は manga-one では現れない。
+WIRE_VARINT = 0
+WIRE_FIXED64 = 1
+WIRE_LEN = 2
+WIRE_FIXED32 = 5
+
+VARINT_MAX_SHIFT = 64  # varint は最大 64 bit。超えたら壊れたバッファ
 
 
 def _read_varint(buf: bytes, i: int) -> tuple[int, int]:
@@ -80,8 +89,76 @@ def _read_varint(buf: bytes, i: int) -> tuple[int, int]:
         if not (b & 0x80):
             return v, i
         s += 7
-        if s > 64:
+        if s > VARINT_MAX_SHIFT:
             raise ValueError("varint too long")
+
+
+class _DecodeError(ValueError):
+    """protobuf バッファが壊れている、または未対応の wire 種別を含む。"""
+
+
+def _read_fixed(buf: bytes, i: int, fmt: str, size: int) -> int:
+    if i + size > len(buf):
+        raise _DecodeError("fixed-width field overruns buffer")
+    (value,) = struct.unpack_from(fmt, buf, i)
+    return int(value)
+
+
+def _decode_length_delimited(buf: bytes, i: int, field: int) -> tuple[tuple[int, str, Any], int]:
+    """wire 2 (length-delimited) を 1 件読み、エントリと次の位置を返す。
+
+    msg → str → bytes の順にフォールバックする。ここで呼ぶのは None を返す
+    ``proto_decode`` 側であって ``_decode_fields`` ではない。入れ子の解釈失敗を
+    例外にしてしまうと、文字列やバイト列へのフォールバックが効かなくなるため。
+    """
+    try:
+        ln, i = _read_varint(buf, i)
+    except ValueError as exc:
+        raise _DecodeError("truncated length prefix") from exc
+    if i + ln > len(buf):
+        raise _DecodeError("length-delimited field overruns buffer")
+    sub = buf[i : i + ln]
+    i += ln
+    inner = proto_decode(sub)
+    if inner:  # 非空かつ None でない
+        return (field, "msg", inner), i
+    # 空メッセージ([])または非メッセージ。文字列化を試みる。
+    try:
+        return (field, "str", sub.decode("utf-8")), i
+    except UnicodeDecodeError:
+        return (field, "bytes", sub), i
+
+
+def _decode_fields(buf: bytes) -> ProtoNode:
+    """バッファを走査してエントリを積む。壊れていれば ``_DecodeError``。"""
+    out: ProtoNode = []
+    i = 0
+    while i < len(buf):
+        try:
+            tag, i = _read_varint(buf, i)
+        except ValueError as exc:
+            raise _DecodeError("truncated tag") from exc
+        wire = tag & 7
+        field = tag >> 3
+        if wire == WIRE_VARINT:
+            try:
+                value, i = _read_varint(buf, i)
+            except ValueError as exc:
+                raise _DecodeError("truncated varint") from exc
+            out.append((field, "varint", value))
+        elif wire == WIRE_FIXED64:
+            out.append((field, "fixed64", _read_fixed(buf, i, "<Q", 8)))
+            i += 8
+        elif wire == WIRE_LEN:
+            entry, i = _decode_length_delimited(buf, i, field)
+            out.append(entry)
+        elif wire == WIRE_FIXED32:
+            out.append((field, "fixed32", _read_fixed(buf, i, "<I", 4)))
+            i += 4
+        else:
+            # SGROUP/EGROUP は manga-one では未使用
+            raise _DecodeError(f"unsupported wire type {wire}")
+    return out
 
 
 def proto_decode(buf: bytes) -> ProtoNode | None:
@@ -90,60 +167,15 @@ def proto_decode(buf: bytes) -> ProtoNode | None:
     wire 種別:
       - "varint" — int
       - "fixed64"/"fixed32" — int
-      - "msg" — 入れ子の ProtoNode（再帰）
-      - "str" — UTF-8 文字列（length-delimited で msg 化に失敗したフォールバック）
+      - "msg" — 入れ子の ProtoNode(再帰)
+      - "str" — UTF-8 文字列(length-delimited で msg 化に失敗したフォールバック)
       - "bytes" — 上記すべてに失敗した生バイト列
-    バッファが消費しきれない／壊れている場合は ``None``。
+    バッファが消費しきれない/壊れている場合は ``None``。
     """
-    out: ProtoNode = []
-    i = 0
-    while i < len(buf):
-        try:
-            tag, i = _read_varint(buf, i)
-        except ValueError:
-            return None
-        wire = tag & 7
-        field = tag >> 3
-        if wire == 0:
-            try:
-                v, i = _read_varint(buf, i)
-            except ValueError:
-                return None
-            out.append((field, "varint", v))
-        elif wire == 1:
-            if i + 8 > len(buf):
-                return None
-            (v64,) = struct.unpack_from("<Q", buf, i)
-            i += 8
-            out.append((field, "fixed64", v64))
-        elif wire == 2:
-            try:
-                ln, i = _read_varint(buf, i)
-            except ValueError:
-                return None
-            if i + ln > len(buf):
-                return None
-            sub = buf[i : i + ln]
-            i += ln
-            inner = proto_decode(sub)
-            if inner:  # 非空かつ None でない
-                out.append((field, "msg", inner))
-            else:
-                # 空メッセージ（[]）または非メッセージ。文字列化を試みる。
-                try:
-                    out.append((field, "str", sub.decode("utf-8")))
-                except UnicodeDecodeError:
-                    out.append((field, "bytes", sub))
-        elif wire == 5:
-            if i + 4 > len(buf):
-                return None
-            (v32,) = struct.unpack_from("<I", buf, i)
-            i += 4
-            out.append((field, "fixed32", v32))
-        else:
-            # SGROUP/EGROUP は manga-one では未使用
-            return None
-    return out
+    try:
+        return _decode_fields(buf)
+    except _DecodeError:
+        return None
 
 
 def _find_field(node: ProtoNode, field: int) -> tuple[str, Any] | None:
@@ -159,7 +191,7 @@ def _find_field(node: ProtoNode, field: int) -> tuple[str, Any] | None:
 
 
 def parse_chapter(entry: ProtoNode) -> dict[str, Any] | None:
-    """1章エントリ（chapter_list.1 の中身）を整形。有料章・不正データは ``None``。"""
+    """1章エントリ(chapter_list.1 の中身)を整形。有料章・不正データは ``None``。"""
     chapter_id: int | None = None
     label = ""
     subtitle = ""
@@ -185,9 +217,7 @@ def parse_chapter(entry: ProtoNode) -> dict[str, Any] | None:
     if not m:
         return None
     try:
-        pubdate = datetime(
-            int(m.group(1)), int(m.group(2)), int(m.group(3)), tzinfo=JST
-        )
+        pubdate = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), tzinfo=JST)
     except ValueError:
         return None
 
@@ -233,7 +263,7 @@ def extract_work_meta(tree: ProtoNode) -> dict[str, str] | None:
 
 
 def extract_free_chapters(tree: ProtoNode) -> list[dict[str, Any]]:
-    """章リストから無料章のみ抽出（chapter_id 降順）。"""
+    """章リストから無料章のみ抽出(chapter_id 降順)。"""
     chapter_list = _find_field(tree, CHAPTER_LIST_FIELD)
     if chapter_list is None or chapter_list[0] != "msg":
         return []
@@ -276,9 +306,7 @@ def create_session() -> requests.Session:
 def build_feed_for_work(
     session: requests.Session, title_id: int, chapter_id: int
 ) -> dict[str, str] | None:
-    api_url = VIEWER_API_URL_TEMPLATE.format(
-        title_id=title_id, chapter_id=chapter_id
-    )
+    api_url = VIEWER_API_URL_TEMPLATE.format(title_id=title_id, chapter_id=chapter_id)
     work_url = WORK_URL_TEMPLATE.format(title_id=title_id, chapter_id=chapter_id)
     logger.info("%s %s", title_id, api_url)
 
@@ -288,9 +316,7 @@ def build_feed_for_work(
         logger.warning("request failed for %s: %s", title_id, exc)
         return None
     if not response.ok:
-        logger.warning(
-            "failed to retrieve %s (status=%s)", title_id, response.status_code
-        )
+        logger.warning("failed to retrieve %s (status=%s)", title_id, response.status_code)
         return None
 
     tree = proto_decode(response.content)
@@ -315,9 +341,7 @@ def build_feed_for_work(
         image=work["thumbnail"] or None,
     )
     for ch in chapters:
-        link = CHAPTER_URL_TEMPLATE.format(
-            title_id=title_id, chapter_id=ch["chapter_id"]
-        )
+        link = CHAPTER_URL_TEMPLATE.format(title_id=title_id, chapter_id=ch["chapter_id"])
         rss.add_item(
             unique_id=str(ch["chapter_id"]),
             title=ch["title"],
@@ -344,7 +368,7 @@ def read_feed_ids(path: Path) -> Iterator[tuple[int, int]]:
         for row in csv.reader(fp):
             if not row or all(not c.strip() for c in row):
                 continue
-            if len(row) < 2:
+            if len(row) < FEED_CSV_COLUMNS:
                 logger.warning("invalid feed row %r, skipping", row)
                 continue
             tid_s = row[0].strip()
@@ -365,15 +389,11 @@ def render_index(feeds: list[dict[str, str]]) -> None:
     env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=True)
     template = env.get_template("index.html")
     FEEDS_DIR.mkdir(exist_ok=True)
-    (FEEDS_DIR / "index.html").write_text(
-        template.render(feeds=feeds), encoding="utf-8"
-    )
+    (FEEDS_DIR / "index.html").write_text(template.render(feeds=feeds), encoding="utf-8")
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     session = create_session()
     rendered: list[dict[str, str]] = []
     for title_id, chapter_id in read_feed_ids(FEED_LIST_PATH):
