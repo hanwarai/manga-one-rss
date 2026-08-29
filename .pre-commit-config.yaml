@@ -1,0 +1,40 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+
+  # ruff / mypy は mirrors リポジトリを rev 固定せず、uv.lock が解決した
+  # プロジェクト自身のバージョンを `uv run` 経由で使う。mirrors 版だと rev と
+  # uv.lock が独立に動いて hook と `uv run ruff` / `uv run mypy` が別結果を出す。
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --force-exclude
+        args: [--fix]
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      # pyproject の [tool.mypy] files = ["main.py", "tests"] を対象にするため
+      # ファイル名は渡さない (渡すと設定側の files 指定と食い違う)。
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+        pass_filenames: false

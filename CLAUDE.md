@@ -24,6 +24,9 @@ uv run ruff format .
 
 # 型検査（CI ゲート）
 uv run mypy
+
+# commit 時に ruff / mypy を自動実行させる（初回だけ）
+uv run pre-commit install
 ```
 
 ## Architecture
@@ -45,6 +48,7 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 - `templates/index.html` — Jinja2 テンプレート（Bootstrap 5）
 - `feeds/` — 生成ファイル出力先（gitignore 済み、`.gitkeep` のみ管理）
 - `tests/fixtures/*.bin` — 実 API レスポンスのバイナリスナップショット
+- `.pre-commit-config.yaml` — commit 時の ruff / mypy。ruff と mypy は mirrors ではなく local hook で `uv run` する（rev と uv.lock が独立に動いて CI と結果がずれるのを防ぐ）
 
 ## CI/CD
 
@@ -63,6 +67,8 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 - main は branch protection で `check` を required status check にしてある。赤いと `gh pr merge` は拒否される
 - `enforce_admins: false` なので admin は `gh pr merge --admin` で上書きでき、main への直接 push も従来どおり可能（`check` は push では走らないため、これを塞ぐと直接 push が恒久的に不可能になる）
 - **`ci.yaml` の job 名 `check` は required status check の context 名そのもの。**リネームすると protection が存在しない context を待ち続け、PR が永久にマージ不能になる。変える場合は branch protection 側も同時に更新する
+
+**`.github/dependabot.yml`** — 3 エコシステム（`uv` / `github-actions` / `pre-commit`）を weekly で更新。いずれも `patterns: ["*"]` の 1 グループにまとめてある。`pre-commit` は `.pre-commit-config.yaml` の remote repo（pre-commit-hooks）の rev だけを追う。**ruff / mypy は local hook なので Dependabot は動かさない**（`uv.lock` 側の bump が効く）
 
 **`.github/workflows/dependabot-auto-merge.yaml`** — Dependabot PR の自動マージ:
 - トリガー: `pull_request_target`（`pull_request` だと Dependabot 起因のトークンが read-only 固定で、`permissions:` でも昇格できないため）
