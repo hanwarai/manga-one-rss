@@ -4,6 +4,11 @@ on:
   pull_request:
     branches:
       - main
+  # main への直接 push でも ruff / format が走るようにする。gh-pages.yaml の build は
+  # mypy と pytest しか持たないため、push トリガが無いと lint だけ素通りしていた。
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -15,10 +20,15 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # 以下のセットアップ手順は gh-pages.yaml の build ジョブと意図的に同じ内容。
       # 両方とも .github/workflows 配下なので Dependabot が同一 PR で両者を bump する。
       - uses: actions/checkout@v7
+
+      # ワークフロー定義自体の静的検査。uv のセットアップより前に置いて早く落とす。
+      - name: Lint workflows
+        uses: raven-actions/actionlint@v2.2.0
 
       # uv 本体のバージョンは pyproject.toml の [dependency-groups] ci にピンしてあり、
       # Dependabot (uv エコシステム) がそれを bump する。ここでその値を読み取り setup-uv に渡す。

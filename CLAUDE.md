@@ -52,20 +52,22 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 
 ## CI/CD
 
-ワークフローは 3 本。うち `gh-pages.yaml` と `ci.yaml` のセットアップ手順（uv version 解決 → setup-uv → setup-python → `uv sync --locked --all-extras`）は意図的に同内容で重複させている。両方 `.github/workflows/` 配下なので Dependabot (github-actions) が同一 PR で両者を bump する。
+ワークフローは 3 本。全ジョブに `timeout-minutes` を設定してある（既定の 360 分だとハングしたジョブが 6 時間居座る）。うち `gh-pages.yaml` と `ci.yaml` のセットアップ手順（uv version 解決 → setup-uv → setup-python → `uv sync --locked --all-extras`）は意図的に同内容で重複させている。両方 `.github/workflows/` 配下なので Dependabot (github-actions) が同一 PR で両者を bump する。
 
 **`.github/workflows/gh-pages.yaml`** — ビルドとデプロイ:
 - トリガー: main へ push、12 時間ごとの schedule、`workflow_dispatch`
 - 処理: `uv sync` → `uv run mypy` → `uv run pytest` → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
 - scheduled run が失敗した場合、`notify-failure` ジョブが `ci-failure` ラベルで Issue を起票（既存 open Issue があればコメント追記）
 
-**`.github/workflows/ci.yaml`** — PR 検証（デプロイなし）:
-- トリガー: main を base とする `pull_request`
+**`.github/workflows/ci.yaml`** — PR と main への push の検証（デプロイなし）:
+- トリガー: main を base とする `pull_request`、および main への `push`
+- push トリガは lint のためにある。`gh-pages.yaml` の build は mypy と pytest しか持たないので、これが無いと main への直接 push で ruff だけ素通りする。ただし auto-merge による Dependabot のマージは `GITHUB_TOKEN` 起因なので起動しない（対象は人間の直接 push）
+- 先頭で actionlint がワークフロー定義自体を静的検査する。uv のセットアップより前に置いて早く落とす
 - 処理: `uv sync` → `uv run ruff check .` → `uv run ruff format --check .` → `uv run mypy` → `uv run pytest`
 - `uv run main.py` は含めない。live API を叩くため PR ごとの実行は不安定で、push/schedule 実行でカバー済み
 - `--frozen` ではなく `--locked` を使う。`--frozen` は `uv.lock` をそのまま使うだけで `pyproject.toml` との整合性を検証しないため、Dependabot PR の lock ずれが auto-merge を素通りする
 - main は branch protection で `check` を required status check にしてある。赤いと `gh pr merge` は拒否される
-- `enforce_admins: false` なので admin は `gh pr merge --admin` で上書きでき、main への直接 push も従来どおり可能（`check` は push では走らないため、これを塞ぐと直接 push が恒久的に不可能になる）
+- `enforce_admins: false` なので admin は `gh pr merge --admin` で上書きでき、main への直接 push も従来どおり可能。**`true` にすると直接 push が恒久的に不可能になる。**required status check は push が着地した後に走るので、push の時点では満たしようがない（ci.yaml に push トリガを足しても変わらない）
 - **`ci.yaml` の job 名 `check` は required status check の context 名そのもの。**リネームすると protection が存在しない context を待ち続け、PR が永久にマージ不能になる。変える場合は branch protection 側も同時に更新する
 
 **`.github/dependabot.yml`** — 3 エコシステム（`uv` / `github-actions` / `pre-commit`）を weekly で更新。いずれも `patterns: ["*"]` の 1 グループにまとめてある。`pre-commit` は `.pre-commit-config.yaml` の remote repo（pre-commit-hooks）の rev だけを追う。**ruff / mypy は local hook なので Dependabot は動かさない**（`uv.lock` 側の bump が効く）
