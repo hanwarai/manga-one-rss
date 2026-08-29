@@ -19,7 +19,7 @@ uv run main.py
 uv run pytest
 
 # 型検査（CI ゲート）
-uv run mypy main.py
+uv run mypy
 ```
 
 ## Architecture
@@ -44,17 +44,18 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 
 ## CI/CD
 
-ワークフローは 3 本。うち `gh-pages.yaml` と `ci.yaml` のセットアップ手順（uv version 解決 → setup-uv → setup-python → `uv sync --frozen --all-extras`）は意図的に同内容で重複させている。両方 `.github/workflows/` 配下なので Dependabot (github-actions) が同一 PR で両者を bump する。
+ワークフローは 3 本。うち `gh-pages.yaml` と `ci.yaml` のセットアップ手順（uv version 解決 → setup-uv → setup-python → `uv sync --locked --all-extras`）は意図的に同内容で重複させている。両方 `.github/workflows/` 配下なので Dependabot (github-actions) が同一 PR で両者を bump する。
 
 **`.github/workflows/gh-pages.yaml`** — ビルドとデプロイ:
 - トリガー: main へ push、12 時間ごとの schedule、`workflow_dispatch`
-- 処理: `uv sync` → `uv run mypy main.py` → `uv run pytest` → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
+- 処理: `uv sync` → `uv run mypy` → `uv run pytest` → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
 - scheduled run が失敗した場合、`notify-failure` ジョブが `ci-failure` ラベルで Issue を起票（既存 open Issue があればコメント追記）
 
 **`.github/workflows/ci.yaml`** — PR 検証（デプロイなし）:
 - トリガー: main を base とする `pull_request`
-- 処理: `uv sync` → `uv run mypy main.py` → `uv run pytest`
+- 処理: `uv sync` → `uv run mypy` → `uv run pytest`
 - `uv run main.py` は含めない。live API を叩くため PR ごとの実行は不安定で、push/schedule 実行でカバー済み
+- `--frozen` ではなく `--locked` を使う。`--frozen` は `uv.lock` をそのまま使うだけで `pyproject.toml` との整合性を検証しないため、Dependabot PR の lock ずれが auto-merge を素通りする
 - main は branch protection で `check` を required status check にしてある。赤いと `gh pr merge` は拒否される
 - `enforce_admins: false` なので admin は `gh pr merge --admin` で上書きでき、main への直接 push も従来どおり可能（`check` は push では走らないため、これを塞ぐと直接 push が恒久的に不可能になる）
 - **`ci.yaml` の job 名 `check` は required status check の context 名そのもの。**リネームすると protection が存在しない context を待ち続け、PR が永久にマージ不能になる。変える場合は branch protection 側も同時に更新する

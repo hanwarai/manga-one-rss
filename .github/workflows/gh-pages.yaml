@@ -35,17 +35,20 @@ jobs:
         uses: astral-sh/setup-uv@v9.0.0
         with:
           version: ${{ steps.uv-version.outputs.version }}
+          enable-cache: true
 
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
           python-version-file: "pyproject.toml"
 
+      # --locked: `--frozen` は uv.lock を使うだけで pyproject.toml との整合性を検証しない。
+      # Dependabot PR の lock ずれはここでしか検出できないため --locked を使う。
       - name: Install the project
-        run: uv sync --frozen --all-extras
+        run: uv sync --locked --all-extras
 
       - name: Type check
-        run: uv run mypy main.py
+        run: uv run mypy
 
       - name: Run tests
         run: uv run pytest
