@@ -1,4 +1,4 @@
-"""feed.csv パース仕様（title_id,chapter_id の2列）。"""
+"""feed.csv パース仕様(title_id,chapter_id の2列)。"""
 
 from pathlib import Path
 
@@ -37,9 +37,7 @@ def test_skips_invalid_rows(tmp_path: Path, caplog: pytest.LogCaptureFixture) ->
     assert any("invalid feed row" in rec.message for rec in caplog.records)
 
 
-def test_deduplicates_by_title_id(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_deduplicates_by_title_id(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     path = _write(
         tmp_path,
         "1924,344436\n659,353965\n1924,999999\n",

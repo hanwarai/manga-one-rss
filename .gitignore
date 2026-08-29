@@ -3,6 +3,21 @@ __pycache__/
 .venv/
 .mypy_cache/
 .pytest_cache/
+.ruff_cache/
 .claude/
+
+# coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/
+.env
+
+# 生成物
 feeds/*
 !feeds/.gitkeep
