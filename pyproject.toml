@@ -2,7 +2,6 @@
 name = "manga-one-rss"
 version = "0.1.0"
 description = "Atom RSS feed generator for マンガワン (manga-one.com) free chapters"
-readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "feedgenerator>=2.2.1",
