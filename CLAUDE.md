@@ -56,7 +56,8 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 
 **`.github/workflows/gh-pages.yaml`** — ビルドとデプロイ:
 - トリガー: main へ push、12 時間ごとの schedule、`workflow_dispatch`
-- 処理: `uv sync` → `uv run mypy` → `uv run pytest` → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
+- 処理: `uv sync` → `uv run mypy` → `uv run pytest` → **公開中の `feeds/*.xml` を seed** → `uv run main.py` → `feeds/` を GitHub Pages にデプロイ
+- **seed が無いと、取得に失敗した作品の `{title_id}.xml` が 404 になる。**`feeds/` は `.gitkeep` しか追跡していないので checkout 直後は空で、デプロイされるのは main.py がその回に書けたファイルだけ。そこで公開中のフィードを先に `curl` で取り直しておく (取得対象は `feed.csv` の `title_id` に限る。グロブで拾うと feed.csv から消した作品が復活する)
 - scheduled run が失敗した場合、`notify-failure` ジョブが `ci-failure` ラベルで Issue を起票（既存 open Issue があればコメント追記）
 
 **`.github/workflows/ci.yaml`** — PR と main への push の検証（デプロイなし）:
@@ -99,3 +100,4 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 - `__NEXT_DATA__` のような単一 JSON 埋め込みは存在しない。Next.js App Router の `__next_f.push` ストリームのみで、章メタ情報は **API 経由でのみ取得可能**
 - ruff の `RUF002`/`RUF003` は全角括弧（`（）`）や全角スラッシュを混同文字として弾く。コメントと docstring では ASCII の `()` `/` を使う（他の RSS リポジトリも同じ慣例）。文字列リテラルを見る `RUF001` は現状 0 件
 - `proto_decode` は `C901`/`PLR0911`/`PLR0912` を踏むため、wire 種別ごとの読み取りを `_read_fixed` / `_decode_length_delimited` / `_decode_fields` に分割し、失敗は `_DecodeError` に集約して `proto_decode` の 1 箇所だけで `None` に変換している。**`_decode_length_delimited` の再帰先は `_decode_fields` ではなく `proto_decode`。**例外を伝播させると入れ子の解釈失敗時に str/bytes へフォールバックできなくなる
+- 取得に失敗した作品は `main()` が `read_existing_feed_title()` で seed 済みの `feeds/{title_id}.xml` から作品名を読み戻し、index に残す。これが無いと一時的な API 障害で作品が一覧から消える
