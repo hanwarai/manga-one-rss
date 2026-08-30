@@ -142,3 +142,70 @@ def test_main_continues_when_one_work_raises(
     assert (feeds_dir / "1924.xml").exists()
     assert '<a href="1924.xml">' in (feeds_dir / "index.html").read_text(encoding="utf-8")
     assert "failed to build feed for 659" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# read_existing_feed_title (前回デプロイ分からの復旧)
+# ---------------------------------------------------------------------------
+
+
+def test_read_existing_feed_title_reads_generated_feed(
+    requests_mock: rm_module.Mocker, feeds_dir: Path
+) -> None:
+    """自分が生成した Atom XML から作品名を読み戻せる (feedgenerator との往復)。"""
+    requests_mock.post(_api_url(1924, 344436), content=(FIXTURES / "1924_344436.bin").read_bytes())
+    main.build_feed_for_work(main.create_session(), 1924, 344436)
+
+    assert main.read_existing_feed_title(1924) == "日本三國"
+
+
+def test_read_existing_feed_title_returns_none_when_missing(feeds_dir: Path) -> None:
+    assert main.read_existing_feed_title(9999) is None
+
+
+def test_read_existing_feed_title_returns_none_for_broken_xml(
+    feeds_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (feeds_dir / "1.xml").write_text("<feed><unclosed>", encoding="utf-8")
+
+    assert main.read_existing_feed_title(1) is None
+    assert "could not parse existing feed for 1" in caplog.text
+
+
+def test_read_existing_feed_title_returns_none_without_title(feeds_dir: Path) -> None:
+    (feeds_dir / "1.xml").write_text(
+        '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><id>x</id></feed>',
+        encoding="utf-8",
+    )
+
+    assert main.read_existing_feed_title(1) is None
+
+
+def test_main_keeps_failed_work_in_index_when_seeded(
+    requests_mock: rm_module.Mocker,
+    feeds_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """取得に失敗しても、seed 済みの XML があれば index に残す。
+
+    gh-pages.yaml が公開中のフィードを seed してから main.py を回すので、
+    一時的な API 障害で作品が一覧から消えない。
+    """
+    _write_feed_csv(tmp_path, monkeypatch, "1924,344436\n659,353965\n")
+    # 659 は「前回デプロイ分」として seed 済みの状態にする
+    requests_mock.post(_api_url(659, 353965), content=(FIXTURES / "659_353965.bin").read_bytes())
+    main.build_feed_for_work(main.create_session(), 659, 353965)
+    seeded = (feeds_dir / "659.xml").read_text(encoding="utf-8")
+
+    requests_mock.reset()
+    requests_mock.post(_api_url(1924, 344436), content=(FIXTURES / "1924_344436.bin").read_bytes())
+    requests_mock.post(_api_url(659, 353965), status_code=500)
+
+    main.main()
+
+    html = (feeds_dir / "index.html").read_text(encoding="utf-8")
+    assert '<a href="1924.xml">日本三國</a>' in html
+    assert '<a href="659.xml">' in html, "seed 済みなら index に残るはず"
+    # seed した XML は上書きされずそのまま残る (購読者の feed URL が 404 にならない)
+    assert (feeds_dir / "659.xml").read_text(encoding="utf-8") == seeded

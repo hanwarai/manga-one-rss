@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import feedgenerator
 import requests
@@ -43,6 +44,7 @@ FEED_CSV_COLUMNS = 2  # feed.csv は title_id,chapter_id の 2 列
 FEEDS_DIR = Path("feeds")
 FEED_LIST_PATH = Path("feed.csv")
 TEMPLATE_DIR = Path("templates")
+ATOM_NS = "http://www.w3.org/2005/Atom"
 
 # viewer_v2 protobuf 内の field 番号
 WORK_INFO_FIELD = 5  # トップ: work メタ情報
@@ -392,19 +394,52 @@ def render_index(feeds: list[dict[str, str]]) -> None:
     (FEEDS_DIR / "index.html").write_text(template.render(feeds=feeds), encoding="utf-8")
 
 
+def read_existing_feed_title(title_id: int) -> str | None:
+    """既存の feeds/{title_id}.xml から作品名を読む。
+
+    今回の実行で取得に失敗した作品を index から落とさないための復旧経路。
+    CI では feeds/ は .gitkeep しか無い状態から始まるので、gh-pages.yaml が
+    公開中のフィードを seed してからここに来る。
+    """
+    path = FEEDS_DIR / f"{title_id}.xml"
+    if not path.exists():
+        return None
+    try:
+        root = ElementTree.parse(path).getroot()
+    except ElementTree.ParseError:
+        logger.warning("could not parse existing feed for %s", title_id)
+        return None
+    node = root.find(f"{{{ATOM_NS}}}title")
+    if node is None or not node.text:
+        return None
+    return node.text
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     session = create_session()
-    rendered: list[dict[str, str]] = []
+    parsed: dict[int, str] = {}
+    title_ids: list[int] = []
     for title_id, chapter_id in read_feed_ids(FEED_LIST_PATH):
+        title_ids.append(title_id)
         try:
             result = build_feed_for_work(session, title_id, chapter_id)
         except Exception:
             logger.exception("failed to build feed for %s", title_id)
             continue
         if result:
-            rendered.append(result)
-    render_index(rendered)
+            parsed[title_id] = result["title"]
+
+    # 今回取得できなかった作品も、seed された前回デプロイ分の XML があれば
+    # そこから作品名を復元して index に残す。順序は feed.csv に従う。
+    feeds: list[dict[str, str]] = []
+    for title_id in title_ids:
+        title = parsed.get(title_id) or read_existing_feed_title(title_id)
+        if title is None:
+            logger.warning("no feed for %s, omitting from index", title_id)
+            continue
+        feeds.append({"id": str(title_id), "title": title})
+    render_index(feeds)
 
 
 if __name__ == "__main__":

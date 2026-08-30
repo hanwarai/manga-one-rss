@@ -54,6 +54,26 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+      # 今回の実行で取得に失敗した作品を公開サイトから消さないための保険。
+      # feeds/ は .gitkeep しか追跡していないので checkout 直後は空で、main.py が
+      # 書けなかった作品はそのままだとデプロイに含まれず {title_id}.xml が 404 になる。
+      # 取得対象は feed.csv の title_id に限る。公開中のファイルをグロブで拾うと
+      # feed.csv から消した作品が復活してしまう。
+      - name: Seed feeds/ from previously deployed site
+        env:
+          PAGES_BASE_URL: https://hanwarai.github.io/manga-one-rss
+        run: |
+          set -euo pipefail
+          mkdir -p feeds
+          while IFS=, read -r title_id _ || [ -n "$title_id" ]; do
+            case "$title_id" in
+              '' | *[!0-9]*) continue ;;
+            esac
+            curl -sfL --max-time 30 -o "feeds/${title_id}.xml" \
+              "$PAGES_BASE_URL/${title_id}.xml" || true
+          done < feed.csv
+          ls -l feeds/
+
       - name: Run main.py
         run: uv run main.py
 
