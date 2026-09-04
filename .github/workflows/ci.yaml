@@ -30,6 +30,18 @@ jobs:
       - name: Lint workflows
         uses: raven-actions/actionlint@v2.2.0
 
+      # actionlint は式の中身しか検査しない。二重波括弧が一重に潰れると、YAML としても
+      # ワークフロー定義としても妥当な「ただの文字列」になり、警告なしで素通りしてしまう
+      # (2026-09-04: 実際に 6 リポジトリで Dependabot auto-merge が数日サイレントに壊れた)。
+      # 潰れた式を機械的に弾く。シェル変数の展開は波括弧の直後に空白を置かず、変数名に
+      # ドットや括弧も含まないため誤検知しない。
+      - name: Guard against collapsed expressions
+        run: |
+          if grep -rnE '\$\{ |\$\{(github|secrets|steps|env|inputs|matrix|needs|runner|job|jobs|vars|strategy|hashFiles)[.(]' .github/workflows/; then
+            echo "::error::GitHub Actions の式が波括弧 1 組に潰れている。上記の箇所を二重波括弧に直すこと"
+            exit 1
+          fi
+
       # uv 本体のバージョンは pyproject.toml の [dependency-groups] ci にピンしてあり、
       # Dependabot (uv エコシステム) がそれを bump する。ここでその値を読み取り setup-uv に渡す。
       - name: Resolve uv version
