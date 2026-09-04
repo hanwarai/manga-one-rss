@@ -64,6 +64,7 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 - トリガー: main を base とする `pull_request`、および main への `push`
 - push トリガは lint のためにある。`gh-pages.yaml` の build は mypy と pytest しか持たないので、これが無いと main への直接 push で ruff だけ素通りする。ただし auto-merge による Dependabot のマージは `GITHUB_TOKEN` 起因なので起動しない（対象は人間の直接 push）
 - 先頭で actionlint がワークフロー定義自体を静的検査する。uv のセットアップより前に置いて早く落とす
+- **潰れた式の guard**（actionlint の直後）: 二重波括弧が一重に潰れた式を grep で弾く。`${ github.x }` / `${github.x}` は YAML としてもワークフロー定義としても妥当な**ただの文字列**なので actionlint も警告を出さず、CI が green のまま壊れる（2026-09-04 に 6 リポジトリの `dependabot-auto-merge.yaml` がこれで壊れ、Dependabot PR が約 5 日滞留した）。シェル変数の展開は波括弧の直後に空白を置かないため `${VAR}` は誤検知しない
 - 処理: `uv sync` → `uv run ruff check .` → `uv run ruff format --check .` → `uv run mypy` → `uv run pytest`
 - `uv run main.py` は含めない。live API を叩くため PR ごとの実行は不安定で、push/schedule 実行でカバー済み
 - `--frozen` ではなく `--locked` を使う。`--frozen` は `uv.lock` をそのまま使うだけで `pyproject.toml` との整合性を検証しないため、Dependabot PR の lock ずれが auto-merge を素通りする
