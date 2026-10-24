@@ -22,8 +22,15 @@ jobs:
 
       # update-type はグループ PR の場合「その PR に含まれる最大の semver 変更」を指す。
       # major を含むグループは自動マージせず手動レビューに残す。
+      #
+      # certifi / tzdata は日付バージョニングで、年をまたぐ更新が API 破壊でないのに
+      # semver-major に分類されるため例外にする。完全一致で見るのは、グループ PR の
+      # どの依存が major なのか metadata から判別できず、部分一致にすると本物の major を
+      # 取りこぼすため。
       - name: Enable auto-merge for non-major updates
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        if: >-
+          steps.metadata.outputs.update-type != 'version-update:semver-major'
+          || contains(fromJSON('["certifi","tzdata"]'), steps.metadata.outputs.dependency-names)
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -40,7 +47,9 @@ jobs:
           fi
 
       - name: Report skipped major update
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-major'
+          && !contains(fromJSON('["certifi","tzdata"]'), steps.metadata.outputs.dependency-names)
         env:
           NAMES: ${{ steps.metadata.outputs.dependency-names }}
         run: echo "::notice::major update ($NAMES) のため自動マージせず手動レビューに残す"
