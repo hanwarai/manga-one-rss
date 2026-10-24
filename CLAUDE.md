@@ -77,7 +77,7 @@ feed.csv → main.py → feeds/*.xml + feeds/index.html → GitHub Pages
 **`.github/workflows/dependabot-auto-merge.yaml`** — Dependabot PR の自動マージ:
 - トリガー: `pull_request_target`（`pull_request` だと Dependabot 起因のトークンが read-only 固定で、`permissions:` でも昇格できないため）
 - `update-type` が `version-update:semver-major` 以外なら `gh pr merge --auto --squash`。`check` が green になり次第マージされる
-- **major は自動マージしない。**グループ PR の `update-type` は「その PR に含まれる最大の semver 変更」を指すので、`patterns: ["*"]` の全部入りグループでも major は弾ける
+- **major は自動マージしない**（例外は `certifi` / `tzdata`。日付バージョニングで年をまたぐ更新が major に分類されるため、`dependency-names` が完全一致なら通す）。グループ PR の `update-type` は「その PR に含まれる最大の semver 変更」を指すので、`patterns: ["*"]` の全部入りグループでも major は弾ける
 - **このワークフローに checkout / ビルド / テストのステップを足してはいけない。**`pull_request_target` は write 権限つきトークンで走るため、PR 側のコードを実行すると任意コードに write token を渡すことになる。検証は read-only で走る `ci.yaml` の責務
 - auto-merge は `GITHUB_TOKEN` が有効化するため、**マージ後の main への push では `gh-pages.yaml` が起動しない**（GITHUB_TOKEN 起因の push はワークフローを再帰起動しない仕様）。依存更新はフィード内容を変えないうえ 12 時間ごとの schedule が再デプロイするので実害はない。もし依存更新が `main.py` を壊していれば次の scheduled run が失敗し `notify-failure` が Issue を立てる
 
